@@ -24,7 +24,7 @@ use typenum::{Unsigned, U1, U2};
 
 #[cfg(all(test, feature = "bench"))]
 mod bench;
-#[cfg(any(test, feature = "bench"))]
+#[cfg(test)]
 mod tests;
 
 /// Encoding definition for Ligero-based polycommit

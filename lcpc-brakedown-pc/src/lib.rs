@@ -33,7 +33,7 @@ pub mod matgen;
 
 #[cfg(all(test, feature = "bench"))]
 mod bench;
-#[cfg(any(test, feature = "bench"))]
+#[cfg(test)]
 mod tests;
 
 /// Encoding definition for SDIG expander-based polycommit
