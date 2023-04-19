@@ -9,7 +9,7 @@
 
 use super::LigeroEncodingRho;
 
-use blake3::{Hasher as Blake3, traits::digest::Digest};
+use blake3::{Hasher as Blake3, traits::digest::{Digest, FixedOutputReset}};
 use fffft::FieldFFT;
 use itertools::iterate;
 use lcpc_2d::{FieldHash, LcCommit, LcEncoding, SizedField};
@@ -22,7 +22,7 @@ type THi = <TLo as std::ops::Add<typenum::U1>>::Output;
 
 fn _commit_bench<D, Ft, Rn, Rd>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: FieldFFT + FieldHash + SizedField,
     Rn: Unsigned + std::fmt::Debug + std::marker::Sync,
     Rd: Unsigned + std::fmt::Debug + std::marker::Sync,
@@ -37,7 +37,7 @@ where
 
 fn commit_bench<D, Ft>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: FieldFFT + FieldHash + SizedField,
 {
     _commit_bench::<D, Ft, typenum::U1, typenum::U4>(b, log_len);
@@ -45,7 +45,7 @@ where
 
 fn commit_isz_bench<D, Ft>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: FieldFFT + FieldHash + SizedField,
 {
     _commit_bench::<D, Ft, TLo, THi>(b, log_len);
@@ -53,7 +53,7 @@ where
 
 fn _prove_bench<D, Ft, Rn, Rd>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: FieldFFT + FieldHash + SizedField,
     Rn: Unsigned + std::fmt::Debug + std::marker::Sync,
     Rd: Unsigned + std::fmt::Debug + std::marker::Sync,
@@ -89,7 +89,7 @@ where
 
 fn prove_bench<D, Ft>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: FieldFFT + FieldHash + SizedField,
 {
     _prove_bench::<D, Ft, typenum::U1, typenum::U4>(b, log_len);
@@ -97,7 +97,7 @@ where
 
 fn prove_isz_bench<D, Ft>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: FieldFFT + FieldHash + SizedField,
 {
     _prove_bench::<D, Ft, TLo, THi>(b, log_len);
@@ -105,7 +105,7 @@ where
 
 fn _verify_bench<D, Ft, Rn, Rd>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: FieldFFT + FieldHash + SizedField,
     Rn: Unsigned + std::fmt::Debug + std::marker::Sync,
     Rd: Unsigned + std::fmt::Debug + std::marker::Sync,
@@ -161,7 +161,7 @@ where
 
 fn verify_bench<D, Ft>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: FieldFFT + FieldHash + SizedField,
 {
     _verify_bench::<D, Ft, typenum::U1, typenum::U4>(b, log_len);
@@ -169,7 +169,7 @@ where
 
 fn verify_isz_bench<D, Ft>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: FieldFFT + FieldHash + SizedField,
 {
     _verify_bench::<D, Ft, TLo, THi>(b, log_len);

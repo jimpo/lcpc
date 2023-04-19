@@ -12,7 +12,7 @@
 lcpc2d is a polynomial commitment scheme based on linear codes
 */
 
-use digest::{Digest, Output};
+use digest::{Digest, FixedOutputReset, Output};
 use err_derive::Error;
 use ff::{Field, PrimeField};
 use merlin::Transcript;
@@ -269,7 +269,7 @@ where
 
 impl<D, E> LcCommit<D, E>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     /// returns the Merkle root of this polynomial commitment (which is the commitment itself)
@@ -490,7 +490,7 @@ where
 #[derive(Debug, Clone)]
 pub struct LcEvalProof<D, E>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     n_cols: usize,
@@ -501,7 +501,7 @@ where
 
 impl<D, E> LcEvalProof<D, E>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     /// Get the number of elements in an encoded vector
@@ -529,7 +529,7 @@ where
 
 impl<D, E> LcEvalProof<D, E>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
     E::F: Serialize,
 {
@@ -566,7 +566,7 @@ where
     /// turn a WrappedLcEvalProof into an LcEvalProof
     fn unwrap<D, E>(self) -> LcEvalProof<D, E>
     where
-        D: Digest,
+        D: Digest + FixedOutputReset,
         E: LcEncoding<F = F>,
     {
         let columns = self.columns.into_iter().map(|c| c.unwrap()).collect();
@@ -582,7 +582,7 @@ where
 
 impl<D, E> Serialize for LcEvalProof<D, E>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
     E::F: Serialize,
 {
@@ -596,7 +596,7 @@ where
 
 impl<'de, D, E> Deserialize<'de> for LcEvalProof<D, E>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
     E::F: Serialize + Deserialize<'de>,
 {
@@ -621,7 +621,7 @@ const LOG_MIN_NCOLS: usize = 5;
 /// Commit to a univariate polynomial whose coefficients are `coeffs` using encoding `enc`
 fn commit<D, E>(coeffs_in: &[FldT<E>], enc: &E) -> ProverResult<LcCommit<D, E>, ErrT<E>>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     let (n_rows, n_per_row, n_cols) = enc.get_dims(coeffs_in.len());
@@ -689,7 +689,7 @@ where
 
 fn merkleize<D, E>(comm: &mut LcCommit<D, E>)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     // step 1: hash each column of the commitment (we always reveal a full column)
@@ -746,7 +746,7 @@ fn hash_columns<D, E>(
 
 fn merkle_tree<D>(ins: &[Output<D>], outs: &mut [Output<D>])
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
 {
     // array should always be of length 2^k - 1
     assert_eq!(ins.len(), outs.len() + 1);
@@ -761,7 +761,7 @@ where
 
 fn merkle_layer<D>(ins: &[Output<D>], outs: &mut [Output<D>])
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
 {
     assert_eq!(ins.len(), 2 * outs.len());
 
@@ -769,8 +769,8 @@ where
         // base case: just compute all of the hashes
         let mut digest = D::new();
         for idx in 0..outs.len() {
-            digest.update(ins[2 * idx].as_ref());
-            digest.update(ins[2 * idx + 1].as_ref());
+            Digest::update(&mut digest, ins[2 * idx].as_ref());
+            Digest::update(&mut digest, ins[2 * idx + 1].as_ref());
             outs[idx] = digest.finalize_reset();
         }
     } else {
@@ -838,7 +838,7 @@ fn verify<D, E>(
     tr: &mut Transcript,
 ) -> VerifierResult<FldT<E>, ErrT<E>>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     // make sure arguments are well formed
@@ -954,11 +954,11 @@ where
 // Check a column opening
 fn verify_column_path<D, E>(column: &LcColumn<D, E>, col_num: usize, root: &Output<D>) -> bool
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     let mut digest = D::new();
-    digest.update(<Output<D> as Default>::default());
+    Digest::update(&mut digest, <Output<D> as Default>::default());
     for e in &column.col[..] {
         e.digest_update(&mut digest);
     }
@@ -968,11 +968,11 @@ where
     let mut col = col_num;
     for p in &column.path[..] {
         if col % 2 == 0 {
-            digest.update(&hash);
-            digest.update(p);
+            Digest::update(&mut digest, &hash);
+            Digest::update(&mut digest, p);
         } else {
-            digest.update(p);
-            digest.update(&hash);
+            Digest::update(&mut digest, p);
+            Digest::update(&mut digest, &hash);
         }
         hash = digest.finalize_reset();
         col >>= 1;
@@ -1008,7 +1008,7 @@ fn prove<D, E>(
     tr: &mut Transcript,
 ) -> ProverResult<LcEvalProof<D, E>, ErrT<E>>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     // make sure arguments are well formed
