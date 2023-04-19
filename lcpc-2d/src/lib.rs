@@ -1167,7 +1167,7 @@ fn verify_column<D, E>(
     poly_eval: &FldT<E>,
 ) -> bool
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     verify_column_path(column, col_num, root) && verify_column_value(column, tensor, poly_eval)
@@ -1180,7 +1180,7 @@ fn eval_outer<D, E>(
     tensor: &[FldT<E>],
 ) -> ProverResult<Vec<FldT<E>>, ErrT<E>>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     if tensor.len() != comm.n_rows {
@@ -1207,7 +1207,7 @@ fn eval_outer_ser<D, E>(
     tensor: &[FldT<E>],
 ) -> ProverResult<Vec<FldT<E>>, ErrT<E>>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     if tensor.len() != comm.n_rows {
@@ -1231,7 +1231,7 @@ fn eval_outer_fft<D, E>(
     tensor: &[FldT<E>],
 ) -> ProverResult<Vec<FldT<E>>, ErrT<E>>
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     E: LcEncoding,
 {
     if tensor.len() != comm.n_rows {
