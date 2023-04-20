@@ -117,7 +117,7 @@ where
     }
 
     fn get_n_degree_tests(&self) -> usize {
-        2
+        1
     }
 }
 

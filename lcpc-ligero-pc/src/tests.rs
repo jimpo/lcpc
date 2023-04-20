@@ -17,7 +17,7 @@ use merlin::Transcript;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use std::iter::repeat_with;
-use lcpc_test_fields::{ft255::*, ft63::*, random_coeffs};
+use lcpc_test_fields::{ft255::*, ft191::*, random_coeffs};
 
 const fn log2(v: usize) -> usize {
     (63 - (v.next_power_of_two() as u64).leading_zeros()) as usize
@@ -32,14 +32,14 @@ fn get_dims() {
         for _ in 0..128 {
             let len_base = 1 << (lgl - 1);
             let len = len_base + (rng.gen::<usize>() % len_base);
-            let (n_rows, n_per_row, n_cols) = LigeroEncoding::<Ft63>::_get_dims(len).unwrap();
+            let (n_rows, n_per_row, n_cols) = LigeroEncoding::<Ft191>::_get_dims(len).unwrap();
             assert!(n_rows * n_per_row >= len);
             assert!((n_rows - 1) * n_per_row < len);
             assert!(
-                n_per_row * LigeroEncoding::<Ft63>::_rho_den() / LigeroEncoding::<Ft63>::_rho_num()
+                n_per_row * LigeroEncoding::<Ft191>::_rho_den() / LigeroEncoding::<Ft191>::_rho_num()
                     <= n_cols
             );
-            assert!(LigeroEncoding::<Ft63>::_dims_ok(n_per_row, n_cols));
+            assert!(LigeroEncoding::<Ft191>::_dims_ok(n_per_row, n_cols));
         }
     }
 }
@@ -218,7 +218,7 @@ fn end_to_end_one_proof_ml() {
     assert!(comm.get_n_rows() != 1);
 
     // evaluate the random polynomial we just generated at a random point x
-    let x = repeat_with(|| Ft63::random(&mut rand::thread_rng()))
+    let x = repeat_with(|| Ft191::random(&mut rand::thread_rng()))
         .take(log2(coeffs.len()))
         .collect::<Vec<_>>();
 
@@ -255,7 +255,7 @@ fn end_to_end_two_proofs_ml() {
     let root = comm.get_root();
 
     // evaluate the random polynomial we just generated at a random point x
-    let x = repeat_with(|| Ft63::random(&mut rand::thread_rng()))
+    let x = repeat_with(|| Ft191::random(&mut rand::thread_rng()))
         .take(log2(coeffs.len()))
         .collect::<Vec<_>>();
 
@@ -269,7 +269,7 @@ fn end_to_end_two_proofs_ml() {
         let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
         tr1.challenge_bytes(b"ligero-pc//challenge", &mut key);
         let mut deg_test_rng = ChaCha20Rng::from_seed(key);
-        Ft63::random(&mut deg_test_rng)
+        Ft191::random(&mut deg_test_rng)
     };
 
     // produce a second proof with the same transcript
@@ -295,7 +295,7 @@ fn end_to_end_two_proofs_ml() {
         let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
         tr2.challenge_bytes(b"ligero-pc//challenge", &mut key);
         let mut deg_test_rng = ChaCha20Rng::from_seed(key);
-        Ft63::random(&mut deg_test_rng)
+        Ft191::random(&mut deg_test_rng)
     };
     assert_eq!(
         challenge_after_first_proof_prover,

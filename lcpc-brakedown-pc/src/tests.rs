@@ -12,7 +12,7 @@ use super::{BrakedownCommit, SdigEncoding, SdigEncodingS};
 use blake3::Hasher as Blake3;
 use ff::Field;
 use lcpc_2d::{LcCommit, LcEncoding};
-use lcpc_test_fields::{ft255::*, ft63::*, random_coeffs};
+use lcpc_test_fields::{ft255::*, ft191::*, random_coeffs};
 use merlin::Transcript;
 use ndarray::{linalg::Dot, Array};
 use rand::{thread_rng, Rng, SeedableRng};
@@ -53,8 +53,8 @@ fn sprs_playground() {
                 }
                 tmp
             };
-            tmp.add_triplet(i, col1, Ft63::random(&mut rng));
-            tmp.add_triplet(i, col2, Ft63::random(&mut rng));
+            tmp.add_triplet(i, col1, Ft191::random(&mut rng));
+            tmp.add_triplet(i, col2, Ft191::random(&mut rng));
         }
         // to_csr appears to be considerably faster than to_csc
         // (note that because of the transpose, we end up with csc in the end)
@@ -64,12 +64,12 @@ fn sprs_playground() {
     let v = {
         let mut tmp = Vec::with_capacity(n_rows);
         for _ in 0..n_rows {
-            tmp.push(Ft63::random(&mut rng));
+            tmp.push(Ft191::random(&mut rng));
         }
         Array::from(tmp)
     };
 
-    let mut t = Ft63::zero();
+    let mut t = Ft191::zero();
     for i in 0..10 {
         let mv = m.dot(&v);
         t += mv[i % n_cols];
@@ -85,12 +85,12 @@ fn test_matgen_encode() {
     use super::matgen::generate;
 
     let n = 256usize + (rng.gen::<usize>() % 4096);
-    let (precodes, postcodes) = generate::<Ft63, TestCode>(n, 0u64);
+    let (precodes, postcodes) = generate::<Ft191, TestCode>(n, 0u64);
 
     let xi_len = codeword_length(&precodes, &postcodes);
     let mut xi = Vec::with_capacity(xi_len);
     for _ in 0..xi_len {
-        xi.push(Ft63::random(&mut rng));
+        xi.push(Ft191::random(&mut rng));
     }
     encode(&mut xi, &precodes, &postcodes);
 }
@@ -193,7 +193,7 @@ fn end_to_end_one_proof_ml() {
     assert_eq!(1 << lgl, comm.get_n_rows() * comm.get_n_per_row());
 
     // evaluate the random polynomial we just generated at a random point x
-    let x = repeat_with(|| Ft63::random(&mut rand::thread_rng()))
+    let x = repeat_with(|| Ft191::random(&mut rand::thread_rng()))
         .take(log2(coeffs.len()))
         .collect::<Vec<_>>();
 
@@ -230,7 +230,7 @@ fn end_to_end_two_proofs_ml() {
     let root = comm.get_root();
 
     // evaluate the random polynomial we just generated at a random point x
-    let x = repeat_with(|| Ft63::random(&mut rand::thread_rng()))
+    let x = repeat_with(|| Ft191::random(&mut rand::thread_rng()))
         .take(log2(coeffs.len()))
         .collect::<Vec<_>>();
 
@@ -244,7 +244,7 @@ fn end_to_end_two_proofs_ml() {
         let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
         tr1.challenge_bytes(b"ligero-pc//challenge", &mut key);
         let mut deg_test_rng = ChaCha20Rng::from_seed(key);
-        Ft63::random(&mut deg_test_rng)
+        Ft191::random(&mut deg_test_rng)
     };
 
     // produce a second proof with the same transcript
@@ -270,7 +270,7 @@ fn end_to_end_two_proofs_ml() {
         let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
         tr2.challenge_bytes(b"ligero-pc//challenge", &mut key);
         let mut deg_test_rng = ChaCha20Rng::from_seed(key);
-        Ft63::random(&mut deg_test_rng)
+        Ft191::random(&mut deg_test_rng)
     };
     assert_eq!(
         challenge_after_first_proof_prover,
