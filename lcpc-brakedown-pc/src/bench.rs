@@ -16,7 +16,7 @@ use merlin::Transcript;
 use num_traits::Num;
 use sprs::MulAcc;
 use test::{black_box, Bencher};
-use lcpc_test_fields::{def_bench, ft127::*, ft255::*, random_coeffs};
+use lcpc_test_fields::{def_bench, ft127::*, ft191::*, ft255::*, random_coeffs};
 use std::iter::repeat_with;
 
 #[bench]
@@ -126,6 +126,18 @@ def_bench!(prove, Ft127, Blake3, 24);
 def_bench!(verify, Ft127, Blake3, 16);
 def_bench!(verify, Ft127, Blake3, 20);
 def_bench!(verify, Ft127, Blake3, 24);
+
+def_bench!(commit, Ft191, Blake3, 16);
+def_bench!(commit, Ft191, Blake3, 20);
+def_bench!(commit, Ft191, Blake3, 24);
+
+def_bench!(prove, Ft191, Blake3, 16);
+def_bench!(prove, Ft191, Blake3, 20);
+def_bench!(prove, Ft191, Blake3, 24);
+
+def_bench!(verify, Ft191, Blake3, 16);
+def_bench!(verify, Ft191, Blake3, 20);
+def_bench!(verify, Ft191, Blake3, 24);
 
 def_bench!(commit, Ft255, Blake3, 16);
 def_bench!(commit, Ft255, Blake3, 20);

@@ -14,7 +14,7 @@ use fffft::FieldFFT;
 use lcpc_2d::{FieldHash, LcCommit, LcEncoding, SizedField};
 use merlin::Transcript;
 use test::{black_box, Bencher};
-use lcpc_test_fields::{def_bench, ft127::*, ft255::*, random_coeffs};
+use lcpc_test_fields::{def_bench, ft127::*, ft191::*, ft255::*, random_coeffs};
 use typenum::{Unsigned, U39 as TLo};
 use std::iter::repeat_with;
 
@@ -171,6 +171,18 @@ def_bench!(prove, Ft127, Blake3, 24);
 def_bench!(verify, Ft127, Blake3, 16);
 def_bench!(verify, Ft127, Blake3, 20);
 def_bench!(verify, Ft127, Blake3, 24);
+
+def_bench!(commit, Ft191, Blake3, 16);
+def_bench!(commit, Ft191, Blake3, 20);
+def_bench!(commit, Ft191, Blake3, 24);
+
+def_bench!(prove, Ft191, Blake3, 16);
+def_bench!(prove, Ft191, Blake3, 20);
+def_bench!(prove, Ft191, Blake3, 24);
+
+def_bench!(verify, Ft191, Blake3, 16);
+def_bench!(verify, Ft191, Blake3, 20);
+def_bench!(verify, Ft191, Blake3, 24);
 
 def_bench!(commit, Ft255, Blake3, 16);
 def_bench!(commit, Ft255, Blake3, 20);
