@@ -9,7 +9,7 @@
 
 use super::{BrakedownCommit, SdigEncoding};
 
-use blake3::{Hasher as Blake3, traits::digest::Digest};
+use blake3::{Hasher as Blake3, traits::digest::{Digest, FixedOutputReset}};
 use ff::{Field, PrimeField};
 use itertools::iterate;
 use lcpc_2d::{FieldHash, LcEncoding};
@@ -31,7 +31,7 @@ fn matgen_bench(b: &mut Bencher) {
 
 fn commit_bench<D, Ft>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: Field + FieldHash + MulAcc + Num + PrimeField,
 {
     let coeffs = random_coeffs(log_len);
@@ -44,7 +44,7 @@ where
 
 fn prove_bench<D, Ft>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: Field + FieldHash + MulAcc + Num + PrimeField,
 {
     let coeffs = random_coeffs(log_len);
@@ -78,7 +78,7 @@ where
 
 fn verify_bench<D, Ft>(b: &mut Bencher, log_len: usize)
 where
-    D: Digest,
+    D: Digest + FixedOutputReset,
     Ft: Field + FieldHash + MulAcc + Num + PrimeField,
 {
     let coeffs = random_coeffs(log_len);
