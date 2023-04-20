@@ -26,6 +26,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::iter::repeat_with;
 
 mod macros;
+mod tensor_product;
 
 #[cfg(test)]
 mod tests;
@@ -125,9 +126,9 @@ where
     /// bad column number
     #[error(display = "bad column number")]
     ColumnNumber,
-    /// bad outer tensor
-    #[error(display = "outer tensor: wrong size")]
-    OuterTensor,
+    /// bad query
+    #[error(display = "query is the wrong size")]
+    QuerySize,
 }
 
 /// result of a prover operation
@@ -151,12 +152,9 @@ where
     /// failed to verify column dot product for degree test
     #[error(display = "column verification: degree test dot product failed")]
     ColumnDegree,
-    /// bad outer tensor
-    #[error(display = "outer tensor: wrong size")]
-    OuterTensor,
-    /// bad inner tensor
-    #[error(display = "inner tensor: wrong size")]
-    InnerTensor,
+    /// bad query
+    #[error(display = "query is the wrong size")]
+    QuerySize,
     /// encoding dimensions do not match proof
     #[error(display = "encoding dimension mismatch")]
     EncodingDims,
@@ -303,11 +301,11 @@ where
     /// Generate an evaluation of a committed polynomial
     pub fn prove(
         &self,
-        outer_tensor: &[FldT<E>],
+        query: &[FldT<E>],
         enc: &E,
         tr: &mut Transcript,
     ) -> ProverResult<LcEvalProof<D, E>, ErrT<E>> {
-        prove(self, outer_tensor, enc, tr)
+        prove(self, query, enc, tr)
     }
 }
 
@@ -518,12 +516,11 @@ where
     pub fn verify(
         &self,
         root: &Output<D>,
-        outer_tensor: &[FldT<E>],
-        inner_tensor: &[FldT<E>],
+        query: &[FldT<E>],
         enc: &E,
         tr: &mut Transcript,
     ) -> VerifierResult<FldT<E>, ErrT<E>> {
-        verify(root, outer_tensor, inner_tensor, self, enc, tr)
+        verify(root, query, self, enc, tr)
     }
 }
 
@@ -831,8 +828,7 @@ const fn log2(v: usize) -> usize {
 /// Verify the evaluation of a committed polynomial and return the result
 fn verify<D, E>(
     root: &Output<D>,
-    outer_tensor: &[FldT<E>],
-    inner_tensor: &[FldT<E>],
+    query: &[FldT<E>],
     proof: &LcEvalProof<D, E>,
     enc: &E,
     tr: &mut Transcript,
@@ -849,15 +845,18 @@ where
     let n_rows = proof.columns[0].col.len();
     let n_cols = proof.get_n_cols();
     let n_per_row = proof.get_n_per_row();
-    if inner_tensor.len() != n_per_row {
-        return Err(VerifierError::InnerTensor);
+    if query.len() >= 32 {
+        return Err(VerifierError::QuerySize);
     }
-    if outer_tensor.len() != n_rows {
-        return Err(VerifierError::OuterTensor);
+    if 2usize.pow(query.len() as u32) != n_rows * n_per_row {
+        return Err(VerifierError::QuerySize);
     }
     if !enc.dims_ok(n_per_row, n_cols) {
         return Err(VerifierError::EncodingDims);
     }
+
+    let inner_tensor = tensor_product::expand_query(&query[..log2(n_per_row)]);
+    let outer_tensor = tensor_product::expand_query(&query[log2(n_per_row)..]);
 
     // step 1: random tensor for degree test and random columns to test
     // step 1a: extract random tensor from transcript
@@ -933,7 +932,7 @@ where
                 rand
             };
 
-            let eval = verify_column_value(column, outer_tensor, &p_eval_fft[col_num]);
+            let eval = verify_column_value(column, &outer_tensor, &p_eval_fft[col_num]);
             let path = verify_column_path(column, col_num, root);
             match (rand, eval, path) {
                 (false, _, _) => Err(VerifierError::ColumnDegree),
@@ -1003,7 +1002,7 @@ where
 /// and generate a proof of (1) low-degreeness and (2) correct evaluation.
 fn prove<D, E>(
     comm: &LcCommit<D, E>,
-    outer_tensor: &[FldT<E>],
+    query: &[FldT<E>],
     enc: &E,
     tr: &mut Transcript,
 ) -> ProverResult<LcEvalProof<D, E>, ErrT<E>>
@@ -1013,9 +1012,13 @@ where
 {
     // make sure arguments are well formed
     check_comm(comm, enc)?;
-    if outer_tensor.len() != comm.n_rows {
-        return Err(ProverError::OuterTensor);
+    if query.len() >= 32 {
+        return Err(ProverError::QuerySize);
     }
+    if 2usize.pow(query.len() as u32) != comm.n_rows * comm.n_per_row {
+        return Err(ProverError::QuerySize);
+    }
+    let outer_tensor = tensor_product::expand_query(&query[log2(comm.n_per_row)..]);
 
     // first, evaluate the polynomial on a random tensor (low-degree test)
     // we repeat this to boost soundness
@@ -1054,7 +1057,7 @@ where
         let mut tmp = vec![FldT::<E>::zero(); comm.n_per_row];
         collapse_columns::<E>(
             &comm.coeffs,
-            outer_tensor,
+            &outer_tensor,
             &mut tmp,
             comm.n_rows,
             comm.n_per_row,
@@ -1184,7 +1187,7 @@ where
     E: LcEncoding,
 {
     if tensor.len() != comm.n_rows {
-        return Err(ProverError::OuterTensor);
+        return Err(ProverError::QuerySize);
     }
 
     // allocate result and compute
@@ -1211,7 +1214,7 @@ where
     E: LcEncoding,
 {
     if tensor.len() != comm.n_rows {
-        return Err(ProverError::OuterTensor);
+        return Err(ProverError::QuerySize);
     }
 
     let mut poly = vec![FldT::<E>::zero(); comm.n_per_row];
@@ -1235,7 +1238,7 @@ where
     E: LcEncoding,
 {
     if tensor.len() != comm.n_rows {
-        return Err(ProverError::OuterTensor);
+        return Err(ProverError::QuerySize);
     }
 
     let mut poly_fft = vec![FldT::<E>::zero(); comm.n_cols];

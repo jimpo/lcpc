@@ -11,7 +11,6 @@ use super::{BrakedownCommit, SdigEncoding, SdigEncodingS};
 
 use blake3::Hasher as Blake3;
 use ff::Field;
-use itertools::iterate;
 use lcpc_2d::{LcCommit, LcEncoding};
 use lcpc_test_fields::{ft255::*, ft63::*, random_coeffs};
 use merlin::Transcript;
@@ -20,6 +19,10 @@ use rand::{thread_rng, Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use sprs::{CsMat, TriMat};
 use std::iter::repeat_with;
+
+const fn log2(v: usize) -> usize {
+    (63 - (v.next_power_of_two() as u64).leading_zeros()) as usize
+}
 
 #[test]
 fn col_opens() {
@@ -108,21 +111,9 @@ fn prove_verify_size_bench() {
         let root = comm.get_root();
 
         // evaluate the random polynomial we just generated at a random point x
-        let x = Ft255::random(&mut rand::thread_rng());
-
-        // compute the outer and inner tensors for powers of x
-        // NOTE: we treat coeffs as a univariate polynomial, but it doesn't
-        // really matter --- the only difference from a multilinear is the
-        // way we compute outer_tensor and inner_tensor from the eval point
-        let inner_tensor: Vec<Ft255> = iterate(Ft255::one(), |&v| v * x)
-            .take(comm.get_n_per_row())
-            .collect();
-        let outer_tensor: Vec<Ft255> = {
-            let xr = x * inner_tensor.last().unwrap();
-            iterate(Ft255::one(), |&v| v * xr)
-                .take(comm.get_n_rows())
-                .collect()
-        };
+        let x = repeat_with(|| Ft255::random(&mut rand::thread_rng()))
+            .take(log2(coeffs.len()))
+            .collect::<Vec<_>>();
 
         let mut xxx = 0u8;
         let now = Instant::now();
@@ -130,7 +121,7 @@ fn prove_verify_size_bench() {
             let mut tr = Transcript::new(b"test transcript");
             tr.append_message(b"polycommit", root.as_ref());
             tr.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
-            let pf = comm.prove(&outer_tensor[..], &enc, &mut tr).unwrap();
+            let pf = comm.prove(&x, &enc, &mut tr).unwrap();
             let encoded: Vec<u8> = bincode::serialize(&pf).unwrap();
             xxx ^= encoded[i];
         }
@@ -139,7 +130,7 @@ fn prove_verify_size_bench() {
         let mut tr = Transcript::new(b"test transcript");
         tr.append_message(b"polycommit", root.as_ref());
         tr.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
-        let pf = comm.prove(&outer_tensor[..], &enc, &mut tr).unwrap();
+        let pf = comm.prove(&x, &enc, &mut tr).unwrap();
         let encoded: Vec<u8> = bincode::serialize(&pf).unwrap();
         let len = encoded.len();
 
@@ -151,8 +142,7 @@ fn prove_verify_size_bench() {
             xxx ^= pf
                 .verify(
                     root.as_ref(),
-                    &outer_tensor[..],
-                    &inner_tensor[..],
+                    &x,
                     &enc,
                     &mut tr,
                 )
@@ -190,53 +180,6 @@ fn rough_bench() {
 }
 
 #[test]
-fn end_to_end_one_proof() {
-    // commit to a random polynomial at a random rate
-    let coeffs = get_random_coeffs();
-    let enc = SdigEncoding::new(coeffs.len(), 0);
-    let comm = BrakedownCommit::<Blake3, _>::commit(&coeffs, &enc).unwrap();
-    // this is the polynomial commitment
-    let root = comm.get_root();
-
-    // evaluate the random polynomial we just generated at a random point x
-    let x = Ft63::random(&mut rand::thread_rng());
-
-    // compute the outer and inner tensors for powers of x
-    // NOTE: we treat coeffs as a univariate polynomial, but it doesn't
-    // really matter --- the only difference from a multilinear is the
-    // way we compute outer_tensor and inner_tensor from the eval point
-    let inner_tensor: Vec<Ft63> = iterate(Ft63::one(), |&v| v * x)
-        .take(comm.get_n_per_row())
-        .collect();
-    let outer_tensor: Vec<Ft63> = {
-        let xr = x * inner_tensor.last().unwrap();
-        iterate(Ft63::one(), |&v| v * xr)
-            .take(comm.get_n_rows())
-            .collect()
-    };
-
-    // compute an evaluation proof
-    let mut tr1 = Transcript::new(b"test transcript");
-    tr1.append_message(b"polycommit", root.as_ref());
-    tr1.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
-    let pf = comm.prove(&outer_tensor[..], &enc, &mut tr1).unwrap();
-
-    // verify it and finish evaluation
-    let mut tr2 = Transcript::new(b"test transcript");
-    tr2.append_message(b"polycommit", root.as_ref());
-    tr2.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
-    let enc2 = SdigEncoding::new_from_dims(pf.get_n_per_row(), pf.get_n_cols(), 0);
-    pf.verify(
-        root.as_ref(),
-        &outer_tensor[..],
-        &inner_tensor[..],
-        &enc2,
-        &mut tr2,
-    )
-    .unwrap();
-}
-
-#[test]
 fn end_to_end_one_proof_ml() {
     let mut rng = rand::thread_rng();
 
@@ -250,27 +193,15 @@ fn end_to_end_one_proof_ml() {
     assert_eq!(1 << lgl, comm.get_n_rows() * comm.get_n_per_row());
 
     // evaluate the random polynomial we just generated at a random point x
-    let x = Ft63::random(&mut rand::thread_rng());
-
-    // compute the outer and inner tensors for powers of x
-    // NOTE: we treat coeffs as a univariate polynomial, but it doesn't
-    // really matter --- the only difference from a multilinear is the
-    // way we compute outer_tensor and inner_tensor from the eval point
-    let inner_tensor: Vec<Ft63> = iterate(Ft63::one(), |&v| v * x)
-        .take(comm.get_n_per_row())
-        .collect();
-    let outer_tensor: Vec<Ft63> = {
-        let xr = x * inner_tensor.last().unwrap();
-        iterate(Ft63::one(), |&v| v * xr)
-            .take(comm.get_n_rows())
-            .collect()
-    };
+    let x = repeat_with(|| Ft63::random(&mut rand::thread_rng()))
+        .take(log2(coeffs.len()))
+        .collect::<Vec<_>>();
 
     // compute an evaluation proof
     let mut tr1 = Transcript::new(b"test transcript");
     tr1.append_message(b"polycommit", root.as_ref());
     tr1.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
-    let pf = comm.prove(&outer_tensor[..], &enc, &mut tr1).unwrap();
+    let pf = comm.prove(&x, &enc, &mut tr1).unwrap();
 
     // verify it and finish evaluation
     let mut tr2 = Transcript::new(b"test transcript");
@@ -279,8 +210,7 @@ fn end_to_end_one_proof_ml() {
     let enc2 = SdigEncoding::new_from_dims(pf.get_n_per_row(), pf.get_n_cols(), 0);
     pf.verify(
         root.as_ref(),
-        &outer_tensor[..],
-        &inner_tensor[..],
+        &x,
         &enc2,
         &mut tr2,
     )
@@ -288,36 +218,27 @@ fn end_to_end_one_proof_ml() {
 }
 
 #[test]
-fn end_to_end_two_proofs() {
+fn end_to_end_two_proofs_ml() {
+    let mut rng = rand::thread_rng();
+
     // commit to a random polynomial at a random rate
-    let coeffs = get_random_coeffs();
-    let enc = SdigEncoding::new(coeffs.len(), 1);
+    let lgl = 5 + rng.gen::<usize>() % 16;
+    let coeffs = random_coeffs(lgl);
+    let enc = SdigEncoding::new_ml(lgl, 1);
     let comm = BrakedownCommit::<Blake3, _>::commit(&coeffs, &enc).unwrap();
     // this is the polynomial commitment
     let root = comm.get_root();
 
     // evaluate the random polynomial we just generated at a random point x
-    let x = Ft63::random(&mut rand::thread_rng());
-
-    // compute the outer and inner tensors for powers of x
-    // NOTE: we treat coeffs as a univariate polynomial, but it doesn't
-    // really matter --- the only difference from a multilinear is the
-    // way we compute outer_tensor and inner_tensor from the eval point
-    let inner_tensor: Vec<Ft63> = iterate(Ft63::one(), |&v| v * x)
-        .take(comm.get_n_per_row())
-        .collect();
-    let outer_tensor: Vec<Ft63> = {
-        let xr = x * inner_tensor.last().unwrap();
-        iterate(Ft63::one(), |&v| v * xr)
-            .take(comm.get_n_rows())
-            .collect()
-    };
+    let x = repeat_with(|| Ft63::random(&mut rand::thread_rng()))
+        .take(log2(coeffs.len()))
+        .collect::<Vec<_>>();
 
     // compute an evaluation proof
     let mut tr1 = Transcript::new(b"test transcript");
     tr1.append_message(b"polycommit", root.as_ref());
     tr1.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
-    let pf = comm.prove(&outer_tensor[..], &enc, &mut tr1).unwrap();
+    let pf = comm.prove(&x, &enc, &mut tr1).unwrap();
 
     let challenge_after_first_proof_prover = {
         let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
@@ -329,7 +250,7 @@ fn end_to_end_two_proofs() {
     // produce a second proof with the same transcript
     tr1.append_message(b"polycommit", root.as_ref());
     tr1.append_message(b"ncols", &(enc.get_n_col_opens() as u64).to_be_bytes()[..]);
-    let pf2 = comm.prove(&outer_tensor[..], &enc, &mut tr1).unwrap();
+    let pf2 = comm.prove(&x, &enc, &mut tr1).unwrap();
 
     // verify it and finish evaluation
     let mut tr2 = Transcript::new(b"test transcript");
@@ -339,8 +260,7 @@ fn end_to_end_two_proofs() {
     let res = pf
         .verify(
             root.as_ref(),
-            &outer_tensor[..],
-            &inner_tensor[..],
+            &x,
             &enc2,
             &mut tr2,
         )
@@ -364,22 +284,11 @@ fn end_to_end_two_proofs() {
     let res2 = pf2
         .verify(
             root.as_ref(),
-            &outer_tensor[..],
-            &inner_tensor[..],
+            &x,
             &enc3,
             &mut tr2,
         )
         .unwrap();
 
     assert_eq!(res, res2);
-}
-
-fn get_random_coeffs() -> Vec<Ft63> {
-    let mut rng = rand::thread_rng();
-
-    let lgl = 16 + rng.gen::<usize>() % 8;
-    let len_base = 1 << (lgl - 1);
-    let len = len_base + (rng.gen::<usize>() % len_base);
-
-    repeat_with(|| Ft63::random(&mut rng)).take(len).collect()
 }

@@ -11,13 +11,13 @@ use super::{BrakedownCommit, SdigEncoding};
 
 use blake3::{Hasher as Blake3, traits::digest::{Digest, FixedOutputReset}};
 use ff::{Field, PrimeField};
-use itertools::iterate;
 use lcpc_2d::{FieldHash, LcEncoding};
 use merlin::Transcript;
 use num_traits::Num;
 use sprs::MulAcc;
 use test::{black_box, Bencher};
 use lcpc_test_fields::{def_bench, ft127::*, ft255::*, random_coeffs};
+use std::iter::repeat_with;
 
 #[bench]
 fn matgen_bench(b: &mut Bencher) {
@@ -35,7 +35,7 @@ where
     Ft: Field + FieldHash + MulAcc + Num + PrimeField,
 {
     let coeffs = random_coeffs(log_len);
-    let enc = SdigEncoding::new(coeffs.len(), 0);
+    let enc = SdigEncoding::new_ml(log_len, 0);
 
     b.iter(|| {
         black_box(BrakedownCommit::<D, Ft>::commit(&coeffs, &enc).unwrap());
@@ -48,20 +48,13 @@ where
     Ft: Field + FieldHash + MulAcc + Num + PrimeField,
 {
     let coeffs = random_coeffs(log_len);
-    let enc = SdigEncoding::new(coeffs.len(), 0);
+    let enc = SdigEncoding::new_ml(log_len, 0);
     let comm = BrakedownCommit::<D, Ft>::commit(&coeffs, &enc).unwrap();
 
     // random point to eval at
-    let x = Ft::random(&mut rand::thread_rng());
-    let inner_tensor: Vec<Ft> = iterate(<Ft as Field>::one(), |&v| v * x)
-        .take(comm.get_n_per_row())
+    let x: Vec<Ft> = repeat_with(|| Ft::random(&mut rand::thread_rng()))
+        .take(log_len)
         .collect();
-    let outer_tensor: Vec<Ft> = {
-        let xr = x * inner_tensor.last().unwrap();
-        iterate(<Ft as Field>::one(), |&v| v * xr)
-            .take(comm.get_n_rows())
-            .collect()
-    };
 
     b.iter(|| {
         let mut tr = Transcript::new(b"bench transcript");
@@ -72,7 +65,7 @@ where
             b"ndegs",
             &(enc.get_n_degree_tests() as u64).to_be_bytes()[..],
         );
-        black_box(comm.prove(&outer_tensor[..], &enc, &mut tr).unwrap());
+        black_box(comm.prove(&x, &enc, &mut tr).unwrap());
     });
 }
 
@@ -82,20 +75,13 @@ where
     Ft: Field + FieldHash + MulAcc + Num + PrimeField,
 {
     let coeffs = random_coeffs(log_len);
-    let enc = SdigEncoding::new(coeffs.len(), 0);
+    let enc = SdigEncoding::new_ml(log_len, 0);
     let comm = BrakedownCommit::<D, Ft>::commit(&coeffs, &enc).unwrap();
 
     // random point to eval at
-    let x = Ft::random(&mut rand::thread_rng());
-    let inner_tensor: Vec<Ft> = iterate(<Ft as Field>::one(), |&v| v * x)
-        .take(comm.get_n_per_row())
+    let x: Vec<Ft> = repeat_with(|| Ft::random(&mut rand::thread_rng()))
+        .take(log_len)
         .collect();
-    let outer_tensor: Vec<Ft> = {
-        let xr = x * inner_tensor.last().unwrap();
-        iterate(<Ft as Field>::one(), |&v| v * xr)
-            .take(comm.get_n_rows())
-            .collect()
-    };
 
     let mut tr = Transcript::new(b"bench transcript");
     tr.append_message(b"polycommit", comm.get_root().as_ref());
@@ -105,7 +91,7 @@ where
         b"ndegs",
         &(enc.get_n_degree_tests() as u64).to_be_bytes()[..],
     );
-    let pf = comm.prove(&outer_tensor[..], &enc, &mut tr).unwrap();
+    let pf = comm.prove(&x, &enc, &mut tr).unwrap();
     let root = comm.get_root();
 
     b.iter(|| {
@@ -120,8 +106,7 @@ where
         black_box(
             pf.verify(
                 root.as_ref(),
-                &outer_tensor[..],
-                &inner_tensor[..],
+                &x,
                 &enc,
                 &mut tr,
             )

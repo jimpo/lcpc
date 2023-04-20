@@ -7,7 +7,8 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use super::{def_labels, FieldHash, LcCommit, LcEncoding, LcEvalProof, LcRoot};
+use super::{def_labels, log2, FieldHash, LcCommit, LcEncoding, LcEvalProof, LcRoot};
+use super::tensor_product::expand_query;
 
 use blake3::Hasher as Blake3;
 use digest::Output;
@@ -125,9 +126,7 @@ type LigeroCommit<D, F> = LcCommit<D, LigeroEncoding<F>>;
 type LigeroEvalProof<D, F> = LcEvalProof<D, LigeroEncoding<F>>;
 
 #[test]
-fn log2() {
-    use super::log2;
-
+fn test_log2() {
     for idx in 0..31 {
         assert_eq!(log2(1usize << idx), idx);
     }
@@ -247,34 +246,21 @@ fn end_to_end() {
     let root = comm.get_root();
 
     // evaluate the random polynomial we just generated at a random point x
-    let x = Ft63::random(&mut rand::thread_rng());
+    let x = repeat_with(|| Ft63::random(&mut rand::thread_rng()))
+        .take(log2(coeffs.len()))
+        .collect::<Vec<_>>();
     let eval = comm
         .coeffs
         .iter()
-        .zip(iterate(Ft63::one(), |&v| v * x).take(coeffs.len()))
+        .zip(expand_query(&x))
         .fold(Ft63::zero(), |acc, (c, r)| acc + *c * r);
-
-    // compute the outer and inner tensors for powers of x
-    // NOTE: we treat coeffs as a univariate polynomial, but it doesn't
-    // really matter --- the only difference from a multilinear is the
-    // way we compute outer_tensor and inner_tensor from the eval point
-    let inner_tensor: Vec<Ft63> = iterate(Ft63::one(), |&v| v * x)
-        .take(comm.n_per_row)
-        .collect();
-    let outer_tensor: Vec<Ft63> = {
-        let xr = x * inner_tensor.last().unwrap();
-        iterate(Ft63::one(), |&v| v * xr)
-            .take(comm.n_rows)
-            .collect()
-    };
 
     // compute an evaluation proof
     let mut tr1 = Transcript::new(b"test transcript");
     tr1.append_message(b"polycommit", root.as_ref());
     tr1.append_message(b"rate", &rho.to_be_bytes()[..]);
     tr1.append_message(b"ncols", &(N_COL_OPENS as u64).to_be_bytes()[..]);
-    let pf: LigeroEvalProof<Blake3, Ft63> =
-        prove(&comm, &outer_tensor[..], &enc, &mut tr1).unwrap();
+    let pf: LigeroEvalProof<Blake3, Ft63> = prove(&comm, &x, &enc, &mut tr1).unwrap();
     let encoded: Vec<u8> = bincode::serialize(&pf).unwrap();
     let encroot: Vec<u8> = bincode::serialize(&LcRoot::<Blake3, LigeroEncoding<Ft63>> {
         root: *root.as_ref(),
@@ -290,8 +276,7 @@ fn end_to_end() {
     let enc2 = LigeroEncoding::<Ft63>::new_from_dims(pf.get_n_per_row(), pf.get_n_cols());
     let res = verify(
         root.as_ref(),
-        &outer_tensor[..],
-        &inner_tensor[..],
+        &x,
         &pf,
         &enc2,
         &mut tr2,
@@ -308,8 +293,7 @@ fn end_to_end() {
     let enc3 = LigeroEncoding::<Ft63>::new_from_dims(pf2.get_n_per_row(), pf2.get_n_cols());
     let res2 = verify(
         root2.as_ref(),
-        &outer_tensor[..],
-        &inner_tensor[..],
+        &x,
         &pf2,
         &enc3,
         &mut tr3,
@@ -332,33 +316,21 @@ fn end_to_end_two_proofs() {
     let root = comm.get_root();
 
     // evaluate the random polynomial we just generated at a random point x
-    let x = Ft63::random(&mut rand::thread_rng());
+    let x = repeat_with(|| Ft63::random(&mut rand::thread_rng()))
+        .take(log2(coeffs.len()))
+        .collect::<Vec<_>>();
     let eval = comm
         .coeffs
         .iter()
-        .zip(iterate(Ft63::one(), |&v| v * x).take(coeffs.len()))
+        .zip(expand_query(&x))
         .fold(Ft63::zero(), |acc, (c, r)| acc + *c * r);
-
-    // compute the outer and inner tensors for powers of x
-    // NOTE: we treat coeffs as a univariate polynomial, but it doesn't
-    // really matter --- the only difference from a multilinear is the
-    // way we compute outer_tensor and inner_tensor from the eval point
-    let inner_tensor: Vec<Ft63> = iterate(Ft63::one(), |&v| v * x)
-        .take(comm.n_per_row)
-        .collect();
-    let outer_tensor: Vec<Ft63> = {
-        let xr = x * inner_tensor.last().unwrap();
-        iterate(Ft63::one(), |&v| v * xr)
-            .take(comm.n_rows)
-            .collect()
-    };
 
     // compute an evaluation proof
     let mut tr1 = Transcript::new(b"test transcript");
     tr1.append_message(b"polycommit", root.as_ref());
     tr1.append_message(b"rate", &rho.to_be_bytes()[..]);
     tr1.append_message(b"ncols", &(N_COL_OPENS as u64).to_be_bytes()[..]);
-    let pf = prove::<Blake3, _>(&comm, &outer_tensor[..], &enc, &mut tr1).unwrap();
+    let pf = prove::<Blake3, _>(&comm, &x, &enc, &mut tr1).unwrap();
 
     let challenge_after_first_proof_prover = {
         let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
@@ -371,7 +343,7 @@ fn end_to_end_two_proofs() {
     tr1.append_message(b"polycommit", root.as_ref());
     tr1.append_message(b"rate", &rho.to_be_bytes()[..]);
     tr1.append_message(b"ncols", &(N_COL_OPENS as u64).to_be_bytes()[..]);
-    let pf2 = prove::<Blake3, _>(&comm, &outer_tensor[..], &enc, &mut tr1).unwrap();
+    let pf2 = prove::<Blake3, _>(&comm, &x, &enc, &mut tr1).unwrap();
 
     // verify it and finish evaluation
     let mut tr2 = Transcript::new(b"test transcript");
@@ -381,8 +353,7 @@ fn end_to_end_two_proofs() {
     let enc2 = LigeroEncoding::<Ft63>::new_from_dims(pf.get_n_per_row(), pf.get_n_cols());
     let res = verify(
         root.as_ref(),
-        &outer_tensor[..],
-        &inner_tensor[..],
+        &x,
         &pf,
         &enc2,
         &mut tr2,
@@ -408,8 +379,7 @@ fn end_to_end_two_proofs() {
     let enc3 = LigeroEncoding::<Ft63>::new_from_dims(pf2.get_n_per_row(), pf2.get_n_cols());
     let res2 = verify(
         root.as_ref(),
-        &outer_tensor[..],
-        &inner_tensor[..],
+        &x,
         &pf2,
         &enc3,
         &mut tr2,
@@ -423,12 +393,12 @@ fn random_coeffs_rho() -> (Vec<Ft63>, f64) {
     let mut rng = rand::thread_rng();
 
     let lgl = 8 + rng.gen::<usize>() % 8;
-    let len_base = 1 << (lgl - 1);
-    let len = len_base + (rng.gen::<usize>() % len_base);
+    let len = 1 << lgl;
+    let log_inv_rate = rng.gen_range(1..=3);
 
     (
         repeat_with(|| Ft63::random(&mut rng)).take(len).collect(),
-        rng.gen_range(0.1f64..0.9f64),
+        1.0f64 / (1 << log_inv_rate) as f64
     )
 }
 
