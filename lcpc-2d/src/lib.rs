@@ -493,7 +493,6 @@ where
 {
     n_cols: usize,
     p_eval: Vec<FldT<E>>,
-    p_random_vec: Vec<Vec<FldT<E>>>,
     columns: Vec<LcColumn<D, E>>,
 }
 
@@ -538,7 +537,6 @@ where
         WrappedLcEvalProof {
             n_cols: self.n_cols,
             p_eval: self.p_eval.clone(),
-            p_random_vec: self.p_random_vec.clone(),
             columns: columns_wrapped,
         }
     }
@@ -552,7 +550,6 @@ where
 {
     n_cols: usize,
     p_eval: Vec<F>,
-    p_random_vec: Vec<Vec<F>>,
     columns: Vec<WrappedLcColumn<F>>,
 }
 
@@ -571,7 +568,6 @@ where
         LcEvalProof {
             n_cols: self.n_cols,
             p_eval: self.p_eval,
-            p_random_vec: self.p_random_vec,
             columns,
         }
     }
@@ -858,46 +854,13 @@ where
     let inner_tensor = tensor_product::expand_query(&query[..log2(n_per_row)]);
     let outer_tensor = tensor_product::expand_query(&query[log2(n_per_row)..]);
 
-    // step 1: random tensor for degree test and random columns to test
-    // step 1a: extract random tensor from transcript
-    // we run multiple instances of this to boost soundness
-    let mut rand_tensor_vec: Vec<Vec<FldT<E>>> = Vec::new();
-    let mut p_random_fft: Vec<Vec<FldT<E>>> = Vec::new();
-    let n_degree_tests = enc.get_n_degree_tests();
-    for i in 0..n_degree_tests {
-        let rand_tensor: Vec<FldT<E>> = {
-            let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
-            tr.challenge_bytes(E::LABEL_DT, &mut key);
-            let mut deg_test_rng = ChaCha20Rng::from_seed(key);
-            // XXX(optimization) could expand seed in parallel instead of in series
-            repeat_with(|| FldT::<E>::random(&mut deg_test_rng))
-                .take(n_rows)
-                .collect()
-        };
-
-        rand_tensor_vec.push(rand_tensor);
-
-        // step 1b: eval encoding of p_random
-        {
-            let mut tmp = Vec::with_capacity(n_cols);
-            tmp.extend_from_slice(&proof.p_random_vec[i][..]);
-            tmp.resize(n_cols, FldT::<E>::zero());
-            enc.encode(&mut tmp)?;
-            p_random_fft.push(tmp);
-        };
-
-        // step 1c: push p_random and p_eval into transcript
-        proof.p_random_vec[i]
-            .iter()
-            .for_each(|coeff| coeff.transcript_update(tr, E::LABEL_PR));
-    }
-
+    // step 1a: push p_eval into transcript
     proof
         .p_eval
         .iter()
         .for_each(|coeff| coeff.transcript_update(tr, E::LABEL_PE));
 
-    // step 1d: extract columns to open
+    // step 1b: extract columns to open
     let cols_to_open: Vec<usize> = {
         let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
         tr.challenge_bytes(E::LABEL_CO, &mut key);
@@ -918,26 +881,16 @@ where
         tmp
     };
 
-    // step 3: check p_random, p_eval, and col paths
+    // step 3: check p_eval and col paths
     cols_to_open
         .par_iter()
         .zip(&proof.columns[..])
         .try_for_each(|(&col_num, column)| {
-            let rand = {
-                let mut rand = true;
-                for i in 0..n_degree_tests {
-                    rand &=
-                        verify_column_value(column, &rand_tensor_vec[i], &p_random_fft[i][col_num]);
-                }
-                rand
-            };
-
             let eval = verify_column_value(column, &outer_tensor, &p_eval_fft[col_num]);
             let path = verify_column_path(column, col_num, root);
-            match (rand, eval, path) {
-                (false, _, _) => Err(VerifierError::ColumnDegree),
-                (_, false, _) => Err(VerifierError::ColumnEval),
-                (_, _, false) => Err(VerifierError::ColumnPath),
+            match (eval, path) {
+                (false, _) => Err(VerifierError::ColumnEval),
+                (_, false) => Err(VerifierError::ColumnPath),
                 _ => Ok(()),
             }
         })?;
@@ -1020,39 +973,9 @@ where
     }
     let outer_tensor = tensor_product::expand_query(&query[log2(comm.n_per_row)..]);
 
-    // first, evaluate the polynomial on a random tensor (low-degree test)
-    // we repeat this to boost soundness
-    let mut p_random_vec: Vec<Vec<FldT<E>>> = Vec::new();
-    let n_degree_tests = enc.get_n_degree_tests();
-    for _i in 0..n_degree_tests {
-        let p_random = {
-            let mut key: <ChaCha20Rng as SeedableRng>::Seed = Default::default();
-            tr.challenge_bytes(E::LABEL_DT, &mut key);
-            let mut deg_test_rng = ChaCha20Rng::from_seed(key);
-            // XXX(optimization) could expand seed in parallel instead of in series
-            let rand_tensor: Vec<FldT<E>> = repeat_with(|| FldT::<E>::random(&mut deg_test_rng))
-                .take(comm.n_rows)
-                .collect();
-            let mut tmp = vec![FldT::<E>::zero(); comm.n_per_row];
-            collapse_columns::<E>(
-                &comm.coeffs,
-                &rand_tensor,
-                &mut tmp,
-                comm.n_rows,
-                comm.n_per_row,
-                0,
-            );
-            tmp
-        };
-        // add p_random to the transcript
-        p_random
-            .iter()
-            .for_each(|coeff| coeff.transcript_update(tr, E::LABEL_PR));
+    assert_eq!(enc.get_n_degree_tests(), 1, "implementation does not support batched queries");
 
-        p_random_vec.push(p_random);
-    }
-
-    // next, evaluate the polynomial using the supplied tensor
+    // evaluate the polynomial using the supplied tensor
     let p_eval = {
         let mut tmp = vec![FldT::<E>::zero(); comm.n_per_row];
         collapse_columns::<E>(
@@ -1090,7 +1013,6 @@ where
     Ok(LcEvalProof {
         n_cols: comm.n_cols,
         p_eval,
-        p_random_vec,
         columns,
     })
 }
