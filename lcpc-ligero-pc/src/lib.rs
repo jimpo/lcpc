@@ -100,8 +100,8 @@ where
         assert!(np2 * nr2 >= len);
         assert!(np2 * (nr2 - 1) < len);
 
-        let sz1 = n_col_opens * nr1 + (1 + nd1) * np1;
-        let sz2 = n_col_opens * nr2 + (1 + nd2) * np2;
+        let sz1 = n_col_opens * nr1 + nd1 * np1;
+        let sz2 = n_col_opens * nr2 + nd2 * np2;
         let (nr, np, nc) = if sz1 < sz2 {
             (nr1, np1, nc1)
         } else {
